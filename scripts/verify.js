@@ -1,5 +1,8 @@
 const fs = require("fs");
 const readline = require("readline");
+const chalk = require("chalk");
+const Table = require("cli-table3");
+const ora = require("ora");
 
 async function ask(question) {
   const rl = readline.createInterface({
@@ -16,10 +19,13 @@ async function ask(question) {
 
 async function main() {
   const hre = require("hardhat");
+
   const addrFile = "deployed_address.txt";
   if (!fs.existsSync(addrFile)) {
     console.error(
-      `ERROR: ${addrFile} not found. Create it with the contract address.`
+      chalk.red(
+        `ERROR: ${addrFile} not found. Create it with the contract address.`
+      )
     );
     process.exit(1);
   }
@@ -27,7 +33,9 @@ async function main() {
 
   const tokenId = process.env.TOKEN_ID ? Number(process.env.TOKEN_ID) : null;
   if (!tokenId) {
-    console.error("ERROR: Please provide TOKEN_ID env var (e.g. TOKEN_ID=42).");
+    console.error(
+      chalk.red("ERROR: Please provide TOKEN_ID env var (e.g. TOKEN_ID=42).")
+    );
     process.exit(1);
   }
 
@@ -39,29 +47,42 @@ async function main() {
   );
 
   // Read on-chain cert
+  const spinner = ora(
+    chalk.cyan(`Fetching certificate ${tokenId} from the blockchain...`)
+  ).start();
   let onChain;
   try {
     onChain = await contract.getCertificate(tokenId);
+    spinner.succeed(chalk.green("Certificate data retrieved."));
   } catch (err) {
-    console.error("\nERROR: Could not read certificate. Token may not exist.");
-    if (err && err.message) console.error("Error message:", err.message);
+    spinner.fail(
+      chalk.red("\nERROR: Could not read certificate. Token may not exist.")
+    );
+    if (err && err.message)
+      console.error(chalk.gray("Error message:", err.message));
     process.exitCode = 1;
     return;
   }
 
-  const onName = onChain[0];
-  const onCourse = onChain[1];
-  const onIssuer = onChain[2];
-  const onDate = onChain[3];
+  const [onName, onCourse, onIssuer, onDate] = onChain;
 
-  console.log("\n== On-chain certificate ==");
-  console.log("Token ID :", tokenId);
-  console.log("Name     :", onName);
-  console.log("Course   :", onCourse);
-  console.log("Issuer   :", onIssuer);
-  console.log("IssueDate:", onDate);
+  console.log(chalk.bold.blue("\n== On-chain Certificate =="));
 
-  // Collect expected values: prefer env vars, otherwise ask interactively
+  const table = new Table({
+    head: [chalk.cyan("Property"), chalk.cyan("Value")],
+    colWidths: [15, 45],
+  });
+
+  table.push(
+    ["Token ID", tokenId],
+    ["Name", onName],
+    ["Course", onCourse],
+    ["Issuer", onIssuer],
+    ["Issue Date", onDate]
+  );
+  console.log(table.toString());
+
+  // Collect expected values
   let expName = process.env.NAME;
   let expCourse = process.env.COURSE;
   let expIssuer = process.env.ISSUER;
@@ -69,72 +90,61 @@ async function main() {
 
   if (!expName && !expCourse && !expIssuer && !expDate) {
     console.log(
-      "\nNo expected values provided via env vars. Enter expected values to verify (leave blank to skip a field):"
+      chalk.yellow(
+        "\nNo expected values provided via env vars. Enter expected values to verify (leave blank to skip a field):"
+      )
     );
-    expName = await ask("Expected Name: ");
-    expCourse = await ask("Expected Course: ");
-    expIssuer = await ask("Expected Issuer: ");
-    expDate = await ask("Expected Issue Date: ");
+    expName = await ask(chalk.cyan("Expected Name: "));
+    expCourse = await ask(chalk.cyan("Expected Course: "));
+    expIssuer = await ask(chalk.cyan("Expected Issuer: "));
+    expDate = await ask(chalk.cyan("Expected Issue Date: "));
   }
 
-  // If user skipped all expected fields, we just printed the cert and exit 0
   const anyProvided = expName || expCourse || expIssuer || expDate;
   if (!anyProvided) {
     console.log(
-      "\nNo expected values entered — verification skipped (printed on-chain data above)."
+      chalk.gray(
+        "\nNo expected values entered — verification skipped (printed on-chain data above)."
+      )
     );
     return;
   }
 
   // Compare provided vs on-chain
-  console.log("\n== Comparison results ==");
+  console.log(chalk.bold.yellow("\n== Comparison results =="));
   let allMatch = true;
 
-  if (expName) {
-    const match = expName === onName;
-    console.log(
-      `Name     : provided="${expName}" -> ${
-        match ? "MATCH ✅" : `MISMATCH ❌ (on-chain='${onName}')`
-      }`
-    );
-    if (!match) allMatch = false;
-  }
-  if (expCourse) {
-    const match = expCourse === onCourse;
-    console.log(
-      `Course   : provided="${expCourse}" -> ${
-        match ? "MATCH ✅" : `MISMATCH ❌ (on-chain='${onCourse}')`
-      }`
-    );
-    if (!match) allMatch = false;
-  }
-  if (expIssuer) {
-    const match = expIssuer === onIssuer;
-    console.log(
-      `Issuer   : provided="${expIssuer}" -> ${
-        match ? "MATCH ✅" : `MISMATCH ❌ (on-chain='${onIssuer}')`
-      }`
-    );
-    if (!match) allMatch = false;
-  }
-  if (expDate) {
-    const match = expDate === onDate;
-    console.log(
-      `IssueDate: provided="${expDate}" -> ${
-        match ? "MATCH ✅" : `MISMATCH ❌ (on-chain='${onDate}')`
-      }`
-    );
-    if (!match) allMatch = false;
-  }
+  const checkField = (field, exp, on) => {
+    if (exp) {
+      const match = exp === on;
+      console.log(
+        `  ${field.padEnd(10)}: ${
+          match
+            ? chalk.green(`MATCH ✅`)
+            : chalk.red(`MISMATCH ❌ (Expected: '${exp}', Found: '${on}')`)
+        }`
+      );
+      if (!match) allMatch = false;
+    }
+  };
+
+  checkField("Name", expName, onName);
+  checkField("Course", expCourse, onCourse);
+  checkField("Issuer", expIssuer, onIssuer);
+  checkField("IssueDate", expDate, onDate);
 
   if (allMatch) {
     console.log(
-      "\nRESULT: ✅ Certificate is AUTHENTIC — provided fields match on-chain data."
+      chalk.bold.green(
+        "\nRESULT: ✅ Certificate is AUTHENTIC — all provided fields match on-chain data."
+      )
     );
     process.exitCode = 0;
   } else {
     console.log(
-      "\nRESULT: ❌ Certificate is FAKE or ALTERED — one or more fields do not match on-chain."
+      chalk.bold.red(
+        "\nRESULT: ❌ Certificate is FAKE or ALTERED — one or more fields do not match on-chain."
+      )
     );
     process.exitCode = 2;
   }

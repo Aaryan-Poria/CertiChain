@@ -1,5 +1,7 @@
 const fs = require("fs");
 const readline = require("readline");
+const chalk = require("chalk");
+const ora = require("ora");
 
 async function ask(question) {
   const rl = readline.createInterface({
@@ -17,18 +19,21 @@ async function ask(question) {
 async function main() {
   const hre = require("hardhat");
 
-  console.log("\n=== CertiChain Certificate Issuer ===\n");
+  console.log(chalk.bold.blue("\n=== CertiChain Certificate Issuer ===\n"));
 
-  // Ask user for certificate details
-  const name = await ask("Enter recipient name: ");
-  const course = await ask("Enter course name: ");
-  const issuer = await ask("Enter issuer (institution): ");
-  const issueDate = await ask("Enter issue date (e.g. 30-10-2025): ");
+  const name = await ask(chalk.cyan("Enter recipient name: "));
+  const course = await ask(chalk.cyan("Enter course name: "));
+  const issuer = await ask(chalk.cyan("Enter issuer (institution): "));
+  const issueDate = await ask(
+    chalk.cyan("Enter issue date (e.g. 30-10-2025): ")
+  );
 
   const addrFile = "deployed_address.txt";
   if (!fs.existsSync(addrFile)) {
     console.error(
-      `\n❌ ${addrFile} not found. Please deploy the contract first.`
+      chalk.red(
+        `\n❌ ${addrFile} not found. Please deploy the contract first using 'npx hardhat run scripts/deploy.js'`
+      )
     );
     process.exit(1);
   }
@@ -36,8 +41,8 @@ async function main() {
   const CONTRACT_ADDRESS = fs.readFileSync(addrFile, "utf8").trim();
   const [owner] = await hre.ethers.getSigners();
 
-  console.log("\nIssuing certificate...");
-  console.log("Using signer:", owner.address);
+  console.log(chalk.yellow("\nIssuing certificate..."));
+  console.log(chalk.gray("Using signer:"), owner.address);
 
   const contract = await hre.ethers.getContractAt(
     "CertiChain",
@@ -45,8 +50,10 @@ async function main() {
     owner
   );
 
-  // Generate a random token ID (can be replaced by incremental logic later)
+  // Generate a random token ID
   const tokenId = Math.floor(Math.random() * 1_000_000_000);
+
+  const spinner = ora("Sending transaction to the network...").start();
 
   try {
     const tx = await contract.issueCertificate(
@@ -58,19 +65,28 @@ async function main() {
       issueDate
     );
 
-    console.log("\nTransaction sent:", tx.hash);
+    spinner.text = "Transaction sent, awaiting confirmation...";
+    console.log(chalk.gray(`\n  Transaction hash: ${tx.hash}`));
+
     const receipt = await tx.wait();
-    console.log("Transaction mined in block", receipt.blockNumber);
 
-    console.log("\n✅ Certificate issued successfully!");
-    console.log("Token ID:", tokenId);
+    spinner.succeed(
+      chalk.green(`Transaction mined in block ${receipt.blockNumber}`)
+    );
 
-    console.log("\nYou can verify it using the following command:\n");
+    console.log(chalk.bold.green("\n✅ Certificate issued successfully!"));
+    console.log(chalk.cyan("Token ID:"), tokenId);
+
     console.log(
-      `TOKEN_ID=${tokenId} NAME="${name}" COURSE="${course}" ISSUER="${issuer}" DATE="${issueDate}" npx hardhat run scripts/verify.js --network localhost\n`
+      chalk.yellow("\nYou can verify it using the following command:\n")
+    );
+    console.log(
+      chalk.gray(
+        `TOKEN_ID=${tokenId} NAME="${name}" COURSE="${course}" ISSUER="${issuer}" DATE="${issueDate}" npx hardhat run scripts/verify.js --network localhost\n`
+      )
     );
   } catch (err) {
-    console.error("\n❌ Failed to issue certificate:");
+    spinner.fail(chalk.red("\n❌ Failed to issue certificate:"));
     console.error(err.message || err);
   }
 }
