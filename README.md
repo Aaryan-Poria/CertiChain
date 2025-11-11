@@ -27,5 +27,11 @@ npx hardhat run scripts/deploy.js --network localhost
 ```
 npx hardhat run scripts/issue.js --network localhost
 ```
+# Verification
+```
+Verify in the output format shown after issuing
+```
 # Cleanup build and cache files if needed
+```
 rm -rf artifacts cache
+```
