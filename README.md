@@ -1,6 +1,6 @@
 # CertiChainV2 – Quick Run Guide
 
-```bash
+
 # Clone the repository
 git clone https://github.com/<your-username>/certichain.git
 cd certichain/CertiChainV2
